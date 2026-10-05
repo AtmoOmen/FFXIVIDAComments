@@ -171,18 +171,16 @@ def main() -> None:
         FunctionCommenter("Client::Game::CurrencyManager.GetItemMaxCount", items),
 
         FunctionCommenter("Client::Game::GameMain.ExecuteCommand", {}, id_param_index=0),
-        FunctionCommenter("Client::UI::Misc::FlagStatusModule_GetUIFlag", {}),
-        FunctionCommenter("Client::UI::Misc::FlagStatusModule_SetUIFlag", {}),
+        FunctionCommenter("Client::UI::Misc::FlagStatusModule.GetUIFlag", {}),
+        FunctionCommenter("Client::UI::Misc::FlagStatusModule.SetUIFlag", {}),
 
         FunctionCommenter("Component::GUI::AtkEventManager.RegisterEvent", eventTypes),
-        FunctionCommenter("Component::GUI::AtkResNode.RegisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkUnitBase.RegisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkAddonControl.RegisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkSimpleTween.RegisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkStage.RegisterViewportEvent", eventTypes),
 
         FunctionCommenter("Component::GUI::AtkEventManager.UnregisterEvent", eventTypes),
-        FunctionCommenter("Component::GUI::AtkResNode.UnregisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkUnitBase.UnregisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkAddonControl.UnregisterEvent", eventTypes),
         FunctionCommenter("Component::GUI::AtkSimpleTween.UnregisterEvent", eventTypes),
