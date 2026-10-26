@@ -15,7 +15,7 @@ from typing import Optional
 
 debug = False
 dataPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "out")
-language = "en"
+language = "chs"
 
 # ---- /CONFIG ----
 
@@ -310,11 +310,27 @@ def get_enum_member_names(name: str) -> dict:
 
     return values
 
+def set_comment(cfunc, call, comment: str):
+    idc.set_cmt(call["ea"], comment, 0)
+
+    location = ida_hexrays.treeloc_t()
+    location.ea = call["comment_ea"]
+    location.itp = ida_hexrays.ITP_BLOCK1
+    existing = cfunc.get_user_cmt(location, ida_hexrays.RETRIEVE_ALWAYS)
+    if existing and f"\n{comment}\n" in f"\n{existing}\n":
+        return
+    if existing:
+        comment = f"{existing}\n{comment}"
+
+    cfunc.set_user_cmt(location, comment)
+    cfunc.save_user_cmts()
+    cfunc.refresh_func_ctext()
+
 class CallArgFinder(ida_hexrays.ctree_visitor_t):
     ea: int
 
     def __init__(self):
-        super().__init__(ida_hexrays.CV_FAST)
+        super().__init__(ida_hexrays.CV_PARENTS)
         self.calls = []
 
     def get_arg_value(self, arg):
@@ -327,8 +343,13 @@ class CallArgFinder(ida_hexrays.ctree_visitor_t):
 
     def visit_expr(self, expr):
         if expr.op == ida_hexrays.cot_call and expr.ea == self.ea: # Check if it's a function call
+            statement = next(
+                parent for parent in reversed(self.parents)
+                if not parent.is_expr() and parent.ea != idaapi.BADADDR
+            )
             call_info = {
                 "ea": expr.ea,
+                "comment_ea": statement.ea,
                 "callee": str(expr.x), # Get function name or expression
                 "args": []
             }
@@ -404,7 +425,7 @@ class FunctionCommenter:
                         break
 
                 if id != 0:
-                    idc.set_cmt(call['ea'], self.get_comment(id), 0)
+                    set_comment(cfunc, call, self.get_comment(id))
 
 def update_lua_functions():
     ea = idc.get_name_ea(text_segment_start_ea, "Common::Lua::LuaState.SetFunctionField")
@@ -434,7 +455,7 @@ def update_lua_functions():
 
             for i, arg in enumerate(call["args"]):
                 if i == 2 and arg != "":
-                    idaapi.set_cmt(xref.frm, f"\"{read_cstr(arg)}\"", 0)
+                    set_comment(cfunc, call, f"\"{read_cstr(arg)}\"")
                     break
 
 if __name__ == "__main__":

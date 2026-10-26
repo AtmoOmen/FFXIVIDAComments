@@ -1,5 +1,6 @@
-﻿using CommandLine;
+using CommandLine;
 using ExdExport;
+using Exporter;
 using Lumina;
 using Lumina.Data;
 using Lumina.Excel;
@@ -14,22 +15,32 @@ using System.Text.Unicode;
 
 var options = Parser.Default.ParseArguments<Options>(args).Value;
 
-if (string.IsNullOrWhiteSpace(options.Path))
+if(string.IsNullOrWhiteSpace(options.Path))
     throw new Exception("Path to sqpack directory is empty.");
 
-if (options.Languages == null || options.Languages.Length == 0)
+if(options.Languages == null || options.Languages.Length == 0)
     throw new Exception("No languages selected.");
+
+foreach (var language in options.Languages)
+{
+    if(!LanguageUtil.LanguageMap.ContainsValue(language))
+        throw new ArgumentException($"Unsupported language: {language}.");
+}
 
 Console.WriteLine($"Path: {options.Path}");
 Console.WriteLine($"Languages: {string.Join(", ", options.Languages)}");
 
-var gameData = new GameData(options.Path, new()
-{
-    PanicOnSheetChecksumMismatch = false,
-    CacheFileResources = false,
-});
+var gameData = new GameData
+(
+    options.Path,
+    new()
+    {
+        PanicOnSheetChecksumMismatch = false,
+        CacheFileResources           = false
+    }
+);
 
-if (!Directory.Exists("out"))
+if(!Directory.Exists("out"))
     Directory.CreateDirectory("out");
 
 // export sheets
@@ -37,16 +48,16 @@ foreach (var selectedLangStr in options.Languages!)
 {
     foreach (var (lang, langStr) in LanguageUtil.LanguageMap)
     {
-        if (langStr == selectedLangStr)
+        if(langStr == selectedLangStr)
         {
-            WriteRows<Addon>(lang, langStr, (row) => (row.RowId, row.Text.ToMacroString()));
-            WriteRows<Lumina.Excel.Sheets.Error>(lang, langStr, (row) => (row.RowId, row.Unknown0.ToMacroString()));
-            WriteRows<Lobby>(lang, langStr, (row) => (row.RowId, row.Text.ToMacroString()));
-            WriteRows<LogMessage>(lang, langStr, (row) => (row.RowId, row.Text.ToMacroString()));
-            WriteRows<MainCommand>(lang, langStr, (row) => (row.RowId, row.Name.ToMacroString()));
-            WriteRows<Quest>(lang, langStr, (row) => (row.RowId - ushort.MaxValue, row.Name.ToMacroString()));
-            WriteRows<Item>(lang, langStr, (row) => row.RowId == 0 ? null : (row.RowId, row.Name.ToMacroString()));
-            WriteRows<Status>(lang, langStr, (row) => row.RowId == 0 ? null : (row.RowId, row.Name.ToMacroString()));
+            WriteRows<Addon>(lang, langStr, row => (row.RowId, row.Text.ToMacroString()));
+            WriteRows<Lumina.Excel.Sheets.Error>(lang, langStr, row => (row.RowId, row.Unknown0.ToMacroString()));
+            WriteRows<Lobby>(lang, langStr, row => (row.RowId, row.Text.ToMacroString()));
+            WriteRows<LogMessage>(lang, langStr, row => (row.RowId, row.Text.ToMacroString()));
+            WriteRows<MainCommand>(lang, langStr, row => (row.RowId, row.Name.ToMacroString()));
+            WriteRows<Quest>(lang, langStr, row => (row.RowId - ushort.MaxValue, row.Name.ToMacroString()));
+            WriteRows<Item>(lang, langStr, row => row.RowId   == 0 ? null : (row.RowId, row.Name.ToMacroString()));
+            WriteRows<Status>(lang, langStr, row => row.RowId == 0 ? null : (row.RowId, row.Name.ToMacroString()));
             break;
         }
     }
@@ -55,32 +66,55 @@ foreach (var selectedLangStr in options.Languages!)
 // export conditions
 ExportConditions("out/Conditions.json");
 
+const string SCRIPT_PATH          = "ffxiv_comments.py";
+var          scriptLines          = File.ReadAllLines(SCRIPT_PATH);
+var          languageSettingIndex = Array.FindIndex(scriptLines, line => line.StartsWith("language = ", StringComparison.Ordinal));
+if(languageSettingIndex < 0)
+    throw new InvalidDataException("The language setting was not found in ffxiv_comments.py.");
+
+var languageSetting = $"language = \"{options.Languages[0]}\"";
+
+if(scriptLines[languageSettingIndex] != languageSetting)
+{
+    scriptLines[languageSettingIndex] = languageSetting;
+    File.WriteAllLines(SCRIPT_PATH, scriptLines);
+}
+
 Console.WriteLine("Done!");
+return;
 
 // ---------------------------
 
-void WriteRows<T>(Language lang, string langStr, Func<T, (uint, string)?> getkv) where T : struct, IExcelRow<T>
+void WriteRows<T>
+(Language                    lang,
+    string                   langStr,
+    Func<T, (uint, string)?> getkv
+) where T : struct, IExcelRow<T>
 {
     var sheet = gameData.GetExcelSheet<T>(lang);
-    if (sheet == null)
+    if(sheet == null)
         return;
 
     var sheetName = typeof(T).GetCustomAttribute<SheetAttribute>()!.Name;
 
     var outDir = $"out/{langStr}";
-    if (!Directory.Exists(outDir))
+    if(!Directory.Exists(outDir))
         Directory.CreateDirectory(outDir);
 
     using var fileStream = File.Create($"{outDir}/{sheetName}.json");
-    using var writer = new Utf8JsonWriter(fileStream, new()
-    {
-        Indented = true,
-        Encoder = JavaScriptEncoder.Create(UnicodeRanges.BasicLatin, UnicodeRanges.Latin1Supplement)
-    });
+    using var writer = new Utf8JsonWriter
+    (
+        fileStream,
+        new()
+        {
+            Indented = true,
+            Encoder  = JavaScriptEncoder.Create(UnicodeRanges.BasicLatin, UnicodeRanges.Latin1Supplement)
+        }
+    );
 
     writer.WriteStartObject();
 
-    var i = 0;
+    var       i  = 0;
     using var pb = new ProgressBar();
 
     foreach (var row in sheet)
@@ -89,7 +123,7 @@ void WriteRows<T>(Language lang, string langStr, Func<T, (uint, string)?> getkv)
         i++;
 
         var kv = getkv(row);
-        if (kv.HasValue)
+        if(kv.HasValue)
             writer.WriteString(kv.Value.Item1.ToString(), kv.Value.Item2);
     }
 
@@ -97,34 +131,40 @@ void WriteRows<T>(Language lang, string langStr, Func<T, (uint, string)?> getkv)
     writer.Flush();
 }
 
-void ExportConditions(string outPath)
+void ExportConditions
+(string outPath
+)
 {
     var type = typeof(Dalamud.Game.ClientState.Conditions.ConditionFlag);
 
     using var fileStream = File.OpenWrite(outPath);
-    using var writer = new Utf8JsonWriter(fileStream, new()
-    {
-        Indented = true,
-        Encoder = JavaScriptEncoder.Create(UnicodeRanges.BasicLatin, UnicodeRanges.Latin1Supplement)
-    });
+    using var writer = new Utf8JsonWriter
+    (
+        fileStream,
+        new()
+        {
+            Indented = true,
+            Encoder  = JavaScriptEncoder.Create(UnicodeRanges.BasicLatin, UnicodeRanges.Latin1Supplement)
+        }
+    );
 
     writer.WriteStartObject();
 
-    var i = 0;
-    using var pb = new ProgressBar();
-    var values = Enum.GetValues(type);
-    var processedNames = new HashSet<string>();
+    var       i              = 0;
+    using var pb             = new ProgressBar();
+    var       values         = Enum.GetValues(type);
+    var       processedNames = new HashSet<string>();
 
     foreach (var value in Enum.GetValues(type))
     {
         pb.Report((double)i / values.Length);
         i++;
 
-        if (value == null)
+        if(value == null)
             continue;
 
         var name = Enum.GetName(type, value);
-        if (name == null || processedNames.Contains(name))
+        if(name == null || processedNames.Contains(name))
             continue;
 
         writer.WriteString(((int)value).ToString(), name);
@@ -133,13 +173,4 @@ void ExportConditions(string outPath)
 
     writer.WriteEndObject(); // end root
     writer.Flush();
-}
-
-public record Options
-{
-    [Option("path", HelpText = "The path to the sqpack directory.", Default = @"C:\Program Files (x86)\SquareEnix\FINAL FANTASY XIV - A Realm Reborn\game\sqpack")]
-    public string? Path { get; set; }
-
-    [Option('l', "languages", HelpText = "The languages to export (de, en, fr, ja).", Default = new string[] { "en" }, Separator = ',')]
-    public string[]? Languages { get; set; }
 }
